@@ -252,7 +252,8 @@ function card(e, now) {
     status = `<p class="status"><span class="soon">${startsIn(e.t0 - now)}</span></p>`;
   }
   const when = e.allDay ? '<b>TBC</b>' : `<b>${fmtTime(e.t0)}</b>${e.hasEnd ? `<span>${fmtTime(e.t1)}</span>` : ''}`;
-  const meta = [e.society, e.location].filter(Boolean).map(esc).join(' · ');
+  const place = e.location || (e.campus && (e.campus === 'Online' ? 'Online' : `${e.campus} campus`));
+  const meta = [e.society, place].filter(Boolean).map(esc).join(' · ');
   const tags = CARD_TAGS.filter((t) => e.tags.includes(t)).slice(0, 4);
   return `<article class="card">
     <div class="when">${when}</div>
