@@ -1,0 +1,59 @@
+name: Update events and deploy
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # every 3 hours (UTC), off the busy top of the hour
+  push:
+    branches: [main]
+  workflow_dispatch:           # "Run workflow" button on GitHub
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Test the tagging rules
+        run: python -m unittest discover -s pipeline
+
+      # Reuse society event descriptions fetched in earlier runs so we don't
+      # re-download every event page from the Union site every 3 hours.
+      - uses: actions/cache@v4
+        with:
+          path: pipeline/.cache
+          key: union-details-${{ github.run_id }}
+          restore-keys: union-details-
+
+      - name: Collect events
+        run: python pipeline/build.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
