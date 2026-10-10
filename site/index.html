@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>After Lectures · what's on at Imperial</title>
+  <meta name="description" content="Every Imperial society event in one place: what's on now, today and this week.">
+  <meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121117" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="After Lectures">
+  <meta property="og:description" content="What's on at Imperial now, today and this week, from every society.">
+  <meta property="og:image" content="icons/icon-512.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="After Lectures">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="wrap brandrow">
+      <img class="logo" src="icons/icon.svg" alt="" width="40" height="40">
+      <div class="brand">
+        <h1>After Lectures</h1>
+        <p>Society events at Imperial</p>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn" id="install" hidden>Install</button>
+    </div>
+    <div class="wrap">
+      <label class="search">
+        <span class="sr-only">Search events</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search events, societies, places" autocomplete="off" enterkeyhint="search">
+      </label>
+    </div>
+  </header>
+
+  <div class="bar">
+    <nav class="scroller" id="days" role="tablist" aria-label="Choose a day"></nav>
+    <div class="scroller filters" id="filters" role="group" aria-label="Filters"></div>
+  </div>
+
+  <main class="wrap" id="list" aria-live="polite">
+    <p class="empty-state">Loading events…</p>
+  </main>
+
+  <footer class="wrap" id="foot"></footer>
+
+  <dialog id="sheet" aria-labelledby="sheet-title"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
