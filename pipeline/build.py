@@ -2,8 +2,10 @@
 
     python pipeline/build.py            # writes site/data/events.json
 
-Sources so far: the Imperial College Union website. Instagram and events added
-from screenshots plug in here later, each returning events in the same format.
+Sources so far: the Imperial College Union website, with each event's poster
+read by AI to fill in the room, real start time and so on (when GEMINI_API_KEY is
+set). Instagram and events added from screenshots plug in here later, each
+returning events in the same format.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import enrich_ai  # noqa: E402
 import tags  # noqa: E402
 import union  # noqa: E402
 
@@ -51,6 +54,7 @@ def main() -> None:
         if e["description"] and len(e["description"]) > MAX_DESCRIPTION:
             e["description"] = e["description"][:MAX_DESCRIPTION].rsplit(" ", 1)[0] + "…"
         kept.append(e)
+    enrich_ai.enrich_all(kept)      # read posters for room, real start time, food, price
     kept.sort(key=lambda e: (e["start"], e["title"]))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

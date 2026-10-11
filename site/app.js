@@ -390,6 +390,7 @@ function sheetHTML(e) {
         ${e.price ? `<li>${ICON.ticket}<div>${esc(e.price)}</div></li>` : ''}
       </ul>
       ${tags.length ? `<ul class="tags">${tags.map((t) => `<li class="tag ${t}">${TAG_LABELS[t]}</li>`).join('')}</ul>` : ''}
+      ${posterNote(e)}
       <div class="actions">
         <button class="btn primary" type="button" data-save="${esc(e.id)}" aria-pressed="${saved}">${ICON.heart}<span>${saved ? 'Saved' : 'Save'}</span></button>
         <button class="btn" type="button" data-cal aria-expanded="false" aria-controls="cal-menu">${ICON.calendar}Add to calendar</button>
@@ -404,6 +405,16 @@ function sheetHTML(e) {
       <p class="source">From the <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(SOURCE_NAMES[e.source] || 'original listing')}</a>. Details can change, so check there before you go.</p>
     </div>
   </div>`;
+}
+
+// Say which details the AI read off the poster, so people know where they came from.
+function posterNote(e) {
+  const read = e.fromPoster || [];
+  if (!read.length) return '';
+  const names = { start: 'time', end: 'time', location: 'room', price: 'price' };
+  const list = [...new Set(read.map((k) => names[k]).filter(Boolean))];
+  const text = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
+  return `<p class="poster-note">The ${text} ${list.length > 1 ? 'were' : 'was'} read from the poster by AI.</p>`;
 }
 
 function openSheet(id) {

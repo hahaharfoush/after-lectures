@@ -42,6 +42,8 @@ jobs:
 
       - name: Collect events
         run: python pipeline/build.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}   # reads each event's poster
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4

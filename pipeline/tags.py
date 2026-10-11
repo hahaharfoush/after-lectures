@@ -22,7 +22,7 @@ CAMPUS_KEYWORDS = [
     ("Online", r"^online$|\bonline (event|session|talk|webinar)\b|\bon (zoom|teams)\b|\bvia (zoom|teams)\b"),
     ("South Kensington", r"south ken|huxley|sherfield|salc|great hall|blyth|\bsaf\b|alexander fleming|blackett|skempton"
                          r"|\brsm\b|royal school of mines|bessemer|\bbone building|roderic hill|city (and|&) guilds|\bcagb\b"
-                         r"|electrical engineering|\beee\b|mech(anical)? eng|chemistry building|dalby court|queen'?s lawn"
+                         r"|electrical (and electronic )?engineering|\beee(\b|\d)|mech(anical)? eng|chemistry building|dalby court|queen'?s lawn"
                          r"|queen'?s tower|abdus salam|central library|\bbeit\b|metric|fivesixeight|\b568\b|h-?bar|ħ-bar"
                          r"|union dining hall|\budh\b|union concert hall|read theatre|ethos|prince'?s gardens|southside"
                          r"|eastside|weeks hall|imperial college road|exhibition road|faculty building|ace extension"

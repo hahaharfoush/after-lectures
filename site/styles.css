@@ -217,6 +217,7 @@ dialog#sheet::backdrop { background: rgb(10 8 20 / 0.5); }
 .facts li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
 .facts svg { width: 20px; height: 20px; color: var(--muted); margin-top: 1px; }
 .facts .sub { color: var(--muted); font-size: 0.875rem; }
+.poster-note { margin: 10px 0 0; font-size: 0.8rem; color: var(--muted); }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
 .cal-menu { display: none; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 .cal-menu.open { display: flex; }

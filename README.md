@@ -23,7 +23,11 @@ tools/     Headless-Chrome scripts: end-to-end checks and icon rendering
 2. **`pipeline/tags.py`** guesses location, campus, price and tags (free, food,
    open to all, newcomers, sign-up, members only) with cautious keyword rules.
    These get replaced by the AI step once Instagram is connected.
-3. **`pipeline/build.py`** merges sources, drops finished events and writes
+3. **`pipeline/enrich_ai.py`** has Gemini read each event's poster and caption
+   (`pipeline/extract.py`) to fill in what the listing lacks: the room, the real
+   start time inside the booked slot, free food, price, sign-up. Each poster is
+   read once and cached. Event pages say which details came from the poster.
+4. **`pipeline/build.py`** merges sources, drops finished events and writes
    `site/data/events.json`.
 4. **`site/`** renders it. Routes live in the URL hash (`#/now`, `#/day/2026-10-13`,
    `#/saved`, `#/e/<id>`) so any view or event can be shared as a link. Saved
@@ -48,11 +52,37 @@ node tools/check.js                               # 26 end-to-end checks + scree
 view has something on. `node tools/make-icons.js` re-renders the PNG icons from
 `site/icons/icon.svg`.
 
+## AI reading test
+
+`tools/render-screens.js` draws 30 real Union events as Instagram-style
+screenshots, twice each: the caption as written, and with a date line in the
+styles societies use ("📅 Tue 13 Oct · 6pm–8pm", "13/10 | 6pm-8pm", "This
+Tuesday from 6pm"). `pipeline/eval_extract.py --model <name>` scores the answers
+against the Union's own listing.
+
+Result for `gemini-3.1-flash-lite` (free tier, 11 Oct 2026), the model we use:
+
+| | right | wrong | left blank |
+|---|---|---|---|
+| Date, posts with a date line (30) | 30 | 0 | 0 |
+| Start time, same posts | 29 | 0 | 1 |
+| Date, captions as written (30, 21 never say when) | 9 | 0 | 21 |
+
+It never invented a date, and averaged 3.3 s. `gemini-3.5-flash` invented one in
+its first 8 undated posts and was about 20 times slower, so we don't use it.
+
+Run with `GEMINI_API_KEY` set:
+
+```bash
+node tools/render-screens.js 30
+python pipeline/eval_extract.py --model gemini-3.1-flash-lite
+```
+
 ## Deploying
 
 `.github/workflows/update-and-deploy.yml` runs every 3 hours on GitHub Actions:
-it runs the tests, collects fresh events and publishes `site/` to GitHub Pages.
-In the repository settings, set **Pages → Source** to **GitHub Actions**.
+it runs the tests, collects fresh events, reads new posters (using the
+`GEMINI_API_KEY` repository secret) and publishes `site/` to GitHub Pages.
 
 ## Roadmap
 
