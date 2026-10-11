@@ -23,64 +23,16 @@ import requests
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Tried in order. If a model is overloaded (503) or has no free quota on this
-# key (429 with a zero limit), the next one is used.
-MODELS = ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash"]
-
-PROMPT = """You read event announcements from Imperial College London student societies: \
-posters, Instagram posts and screenshots of them.
-
-The screenshot was taken on {taken}. Use it to turn relative dates ("this Thursday", \
-"tomorrow", "next week") into calendar dates. If a date has no year, use the next \
-occurrence on or after {taken_iso}.
-
-List every distinct event or session people can turn up to. If one post lists several \
-dates, return one entry per date. For each:
-- title: the event's name as written, without emojis
-- society: the society or group running it (often the account name)
-- date: YYYY-MM-DD
-- start_time, end_time: 24-hour HH:MM
-- location: room, building or venue as written, e.g. "SAF G34" or "Union Dining Hall"
-- price: the cost to attend, as written, e.g. "Free entry" or "£3 members, £5 non-members"; \
-"free food" on its own is not a price
-- free_food, open_to_non_members, signup_required, beginner_friendly: true or false \
-only when the post says so
-- recurring: "weekly" if it says it happens every week, otherwise null
-- evidence: a few words copied from the image showing where the date and time came from
-
-Never guess. Use null for anything that isn't shown, including a location that is "TBC" \
-or "to be announced". If the image isn't announcing an event (a recap, a meme, a \
-committee introduction), return an empty list."""
-
-_nullable = lambda t: {"type": t, "nullable": True}
-SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "events": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "title": {"type": "STRING"},
-                    "society": _nullable("STRING"),
-                    "date": _nullable("STRING"),
-                    "start_time": _nullable("STRING"),
-                    "end_time": _nullable("STRING"),
-                    "location": _nullable("STRING"),
-                    "price": _nullable("STRING"),
-                    "free_food": _nullable("BOOLEAN"),
-                    "open_to_non_members": _nullable("BOOLEAN"),
-                    "signup_required": _nullable("BOOLEAN"),
-                    "beginner_friendly": _nullable("BOOLEAN"),
-                    "recurring": _nullable("STRING"),
-                    "evidence": _nullable("STRING"),
-                },
-                "required": ["title", "society", "date", "start_time", "end_time", "location", "price"],
-            },
-        }
-    },
-    "required": ["events"],
-}
+# The instructions, answer format and model order live in one file shared with
+# the read-screenshot server function, so both read posters the same way.
+# Models are tried in order: if one is overloaded (503) or has no free quota on
+# this key (429 with a zero limit), the next one is used.
+SHARED = Path(__file__).resolve().parent.parent / "supabase" / "functions" / "_shared" / "extract.json"
+_shared = json.loads(SHARED.read_text(encoding="utf-8"))
+MODELS: list[str] = _shared["models"]
+PROMPT: str = _shared["prompt"]
+SCHEMA: dict = _shared["schema"]
+THINKING: str = _shared["thinkingLevel"]
 
 
 class ExtractError(RuntimeError):
@@ -115,7 +67,7 @@ def _text(response: dict) -> str:
 
 
 def extract(image: bytes, mime: str, taken_on: date, caption: str | None = None,
-            models: list[str] | None = None, thinking: str | None = "low") -> dict:
+            models: list[str] | None = None, thinking: str | None = THINKING) -> dict:
     """Return {"model", "seconds", "events": [...]} for one image (plus optional caption text)."""
     taken = taken_on.strftime("%A %d %B %Y").replace(" 0", " ")
     parts = [{"text": PROMPT.format(taken=taken, taken_iso=taken_on.isoformat())},

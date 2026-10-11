@@ -5,7 +5,11 @@
      node tools/check.js [base-url]
 
    The clock is pinned to Monday 12 October 2026, 18:30 London time, so the
-   "now" view has events on and starting soon. Screenshots go to tools/out/. */
+   "now" view has events on and starting soon. Screenshots go to tools/out/.
+
+   If tools/dev-functions.ts is running (DEV_BACKEND, default port 8787), the
+   "Add an event" flow is checked too: a real screenshot is uploaded, read by the
+   AI, checked and added. Without it those checks are skipped. */
 const fs = require('fs');
 const path = require('path');
 const { launch, sleep } = require('./drive.js');
@@ -17,7 +21,9 @@ fs.mkdirSync(OUT, { recursive: true });
 
 // A fresh query string forces a full page load (hash-only changes don't fire load events).
 let loads = 0;
-const url = (hash = '') => `${BASE}?load=${++loads}${hash}`;
+const url = (hash = '', extra = '') => `${BASE}?load=${++loads}${extra}${hash}`;
+const DEV_BACKEND = process.env.DEV_BACKEND || 'http://127.0.0.1:8787';
+const SCREENSHOT = path.join(__dirname, 'out', 'screens', 'union-12506.jpg');   // "Welcome Night! SAF 119 6-8PM"
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -169,6 +175,59 @@ async function run() {
     await sleep(200);
     check('no horizontal page scroll at 320px', !(await s.eval(`return document.documentElement.scrollWidth > window.innerWidth;`)));
     await shot('10-narrow');
+
+    // 10. Adding an event from a screenshot (needs tools/dev-functions.ts running)
+    const backendUp = await fetch(`${DEV_BACKEND}/ping`).then(() => true, () => false);
+    if (!backendUp || !fs.existsSync(SCREENSHOT)) {
+      console.log('SKIP  add-an-event checks (start tools/dev-functions.ts and render the test screenshots)');
+    } else {
+      await s.setViewport(390, 844, { mobile: true, dpr: 2 });
+      await s.goto(url('#/now', `&backend=${encodeURIComponent(DEV_BACKEND)}`));
+      await s.waitFor(`document.querySelector('.card') || document.querySelector('.empty-state h2')`, 15000);
+      check('Add button shows when a server is set up', await s.eval(`return !document.getElementById('add').hidden;`));
+      await s.click('#add');
+      await s.waitFor(`document.getElementById('sheet').open && document.querySelector('[data-file]')`);
+      check('Add opens the upload screen', (await s.eval('return location.hash;')) === '#/add');
+      await sleep(350);   // let the sheet finish sliding in before the screenshot
+      await shot('11-add-upload');
+
+      const { root } = await s.send('DOM.getDocument', {});
+      const { nodeId } = await s.send('DOM.querySelector', { nodeId: root.nodeId, selector: '[data-file]' });
+      await s.send('DOM.setFileInputFiles', { nodeId, files: [SCREENSHOT] });
+      await s.waitFor(`document.querySelector('[data-addform]') || document.querySelector('.add-body .error')`, 90000);
+      const filled = await s.eval(`const f = document.querySelector('[data-addform]'); if (!f) return null;
+        return { title: f.title.value, location: f.location.value, start: f.start_time.value, end: f.end_time.value,
+                 date: f.date.value, food: f.querySelector('input[value="food"]').checked };`);
+      check('AI fills in the form from the screenshot',
+        filled && filled.location === 'SAF 119' && filled.start === '18:00' && filled.end === '20:00' && filled.food,
+        JSON.stringify(filled));
+      check('date stays blank when the screenshot doesn’t show one', filled && filled.date === '');
+      check('form fits the screen', !(await s.eval(`return [...document.querySelectorAll('#sheet input')].some((i) => i.getBoundingClientRect().right > window.innerWidth);`)));
+      await shot('12-add-form');
+
+      // Picking a date that matches an event already listed should warn about a duplicate.
+      await s.type('[data-addform] [name="date"]', '2026-10-12');
+      await sleep(200);
+      const dupText = await s.eval(`return document.querySelector('[data-dup]').innerText;`);
+      check('warns about the matching listed event', /Welcome to Friends of Palestine.*already listed/.test(dupText), dupText.slice(0, 80));
+      await s.type('[data-addform] [name="date"]', '2026-10-14');
+      await s.type('[data-addform] [name="title"]', 'Check script test social');
+      await sleep(200);
+      check('warning clears for a different day', (await s.eval(`return document.querySelector('[data-dup]').innerText.trim();`)) === '');
+
+      await s.click('[data-addform] button[type="submit"]');
+      await s.waitFor(`location.hash.startsWith('#/e/student-') || document.querySelector('.add-body .error')`, 30000);
+      await sleep(300);
+      check('submitting adds the event and opens it', (await s.text('#sheet-title')) === 'Check script test social');
+      check('added events say where they came from', /Added by a student/.test(await s.text('.source')));
+      await shot('13-added-event');
+      await s.click('[data-close]');
+      await sleep(300);
+      await s.goto(url('#/day/2026-10-14', `&backend=${encodeURIComponent(DEV_BACKEND)}`));
+      await s.waitFor(`document.querySelector('.card')`, 10000);
+      // The local server doesn't store anything, so after a reload the test event is gone again.
+      check('nothing is stored by the local test server', !(await texts('.card h3')).includes('Check script test social'));
+    }
 
     check('no console errors', s.errors.length === 0, s.errors.join(' | '));
   } finally {

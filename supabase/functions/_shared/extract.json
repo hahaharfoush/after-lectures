@@ -1,0 +1,86 @@
+{
+ "_about": "Instructions and answer format for reading events from posters and screenshots. Used by pipeline/extract.py and the read-screenshot function. {taken} and {taken_iso} are filled in per request.",
+ "models": [
+  "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-3.5-flash"
+ ],
+ "thinkingLevel": "low",
+ "prompt": "You read event announcements from Imperial College London student societies: posters, Instagram posts and screenshots of them.\n\nThe screenshot was taken on {taken}. Use it to turn relative dates (\"this Thursday\", \"tomorrow\", \"next week\") into calendar dates. If a date has no year, use the next occurrence on or after {taken_iso}.\n\nList every distinct event or session people can turn up to. If one post lists several dates, return one entry per date. For each:\n- title: the event's name as written, without emojis\n- society: the society or group running it (often the account name)\n- date: YYYY-MM-DD\n- start_time, end_time: 24-hour HH:MM\n- location: room, building or venue as written, e.g. \"SAF G34\" or \"Union Dining Hall\"\n- price: the cost to attend, as written, e.g. \"Free entry\" or \"£3 members, £5 non-members\"; \"free food\" on its own is not a price\n- free_food, open_to_non_members, signup_required, beginner_friendly: true or false only when the post says so\n- recurring: \"weekly\" if it says it happens every week, otherwise null\n- evidence: a few words copied from the image showing where the date and time came from\n\nNever guess. Use null for anything that isn't shown, including a location that is \"TBC\" or \"to be announced\". If the image isn't announcing an event (a recap, a meme, a committee introduction), return an empty list.",
+ "schema": {
+  "type": "OBJECT",
+  "properties": {
+   "events": {
+    "type": "ARRAY",
+    "items": {
+     "type": "OBJECT",
+     "properties": {
+      "title": {
+       "type": "STRING"
+      },
+      "society": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "date": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "start_time": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "end_time": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "location": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "price": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "free_food": {
+       "type": "BOOLEAN",
+       "nullable": true
+      },
+      "open_to_non_members": {
+       "type": "BOOLEAN",
+       "nullable": true
+      },
+      "signup_required": {
+       "type": "BOOLEAN",
+       "nullable": true
+      },
+      "beginner_friendly": {
+       "type": "BOOLEAN",
+       "nullable": true
+      },
+      "recurring": {
+       "type": "STRING",
+       "nullable": true
+      },
+      "evidence": {
+       "type": "STRING",
+       "nullable": true
+      }
+     },
+     "required": [
+      "title",
+      "society",
+      "date",
+      "start_time",
+      "end_time",
+      "location",
+      "price"
+     ]
+    }
+   }
+  },
+  "required": [
+   "events"
+  ]
+ }
+}

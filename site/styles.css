@@ -71,8 +71,15 @@ button, input, select { font: inherit; color: inherit; }
 .masthead { padding: calc(14px + env(safe-area-inset-top)) 0 8px; }
 .brandrow { display: flex; align-items: center; gap: 12px; }
 .logo { width: 40px; height: 40px; flex: none; border-radius: 11px; display: block; }
-.brand h1 { margin: 0; font-size: 1.2rem; letter-spacing: -0.01em; line-height: 1.2; }
-.brand p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.brand { min-width: 0; }
+.brand h1 { margin: 0; font-size: 1.2rem; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; }
+.brand p { margin: 0; color: var(--muted); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brandrow .btn { flex: none; }
+/* On narrow phones the header buttons shrink to their icons. */
+@media (max-width: 430px) {
+  .brandrow .btn { padding: 8px 10px; }
+  .brandrow .btn .label { display: none; }
+}
 .masthead .spacer { flex: 1; }
 .btn {
   display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
@@ -223,6 +230,40 @@ dialog#sheet::backdrop { background: rgb(10 8 20 / 0.5); }
 .cal-menu.open { display: flex; }
 .description { white-space: pre-line; overflow-wrap: anywhere; margin: 16px 0 0; }
 .source { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.875rem; color: var(--muted); }
+
+/* ---------- Adding an event ---------- */
+.add-body h2 { padding-right: 36px; }
+.add-body > p { margin: 0 0 12px; }
+.upload {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 16px; margin: 14px 0;
+  border: 2px dashed color-mix(in srgb, var(--accent) 55%, var(--border)); border-radius: 16px;
+  background: var(--accent-soft); color: var(--accent); cursor: pointer; text-align: center;
+}
+.upload svg { width: 32px; height: 32px; }
+.upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fine { font-size: 0.8rem; color: var(--muted); margin: 6px 0; }
+.error { color: #c0392b; font-weight: 600; margin: 10px 0; }
+@media (prefers-color-scheme: dark) { .error { color: #ff8a80; } }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; }
+.shot { display: block; max-width: 100%; max-height: 40dvh; margin: 8px auto 12px; border-radius: 12px; border: 1px solid var(--border); }
+.reading { display: flex; align-items: center; gap: 10px; justify-content: center; color: var(--muted); }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.field { display: block; margin: 0 0 12px; }
+.field > span { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); font-size: 1rem;
+}
+.field textarea { resize: vertical; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.field-row .field:first-child { grid-column: 1 / -1; }
+.field-row .field, .field input { min-width: 0; }
+.tagpick { border: 0; padding: 0; margin: 4px 0 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+.tagpick legend { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.tagpick .chip input { margin: 0 2px 0 0; accent-color: var(--accent); }
+.tagpick .chip:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
 
 #toast {
   position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); translate: -50% 20px; opacity: 0;

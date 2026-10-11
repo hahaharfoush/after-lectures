@@ -19,10 +19,9 @@ from pathlib import Path
 import requests
 
 import tags
-from extract import ExtractError, extract
+from extract import MODELS, ExtractError, extract
 
 CACHE = Path(__file__).parent / ".cache" / "ai-reads.json"
-MODELS = ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash"]
 MAX_PER_RUN = 80          # stay well inside free-tier daily limits
 PROMPT_VERSION = 2        # bump to re-read every poster after changing the prompt
 NOT_A_PLACE = tags.NOT_A_PLACE

@@ -6,7 +6,8 @@
      #/now            what's on now and later today
      #/day/2026-10-12 one day
      #/saved          events you've saved on this device
-     #/e/<event id>   one event, opened over whichever list you were on */
+     #/e/<event id>   one event, opened over whichever list you were on
+     #/add            add an event from a screenshot */
 
 const DATA_URL = 'data/events.json';
 const TZ = 'Europe/London';
@@ -30,6 +31,13 @@ const FILTERS = [
 ];
 const SOURCE_NAMES = { union: 'Imperial College Union website' };
 
+// The server for adding events (Supabase). The key is the public "publishable"
+// one, meant to be in web pages. Until a URL is set, the Add button stays hidden.
+const BACKEND = { url: '', key: '' };
+// Local testing against tools/dev-functions.ts: open the site with ?backend=http://127.0.0.1:8787
+const devBackend = new URLSearchParams(location.search).get('backend');
+if (devBackend && /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(devBackend)) Object.assign(BACKEND, { url: devBackend, key: 'dev' });
+
 const svg = (inner) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 const ICON = {
@@ -41,6 +49,8 @@ const ICON = {
   share: svg('<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>'),
   close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
   check: svg('<path d="m5 12 5 5 9-10"/>'),
+  image: svg('<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.5-4.5L7 20"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
 };
 
 /* ---------- Dates, always in London time ---------- */
@@ -362,7 +372,11 @@ function renderList(now) {
 }
 
 function renderFooter() {
-  const counts = state.sources.map((s) => `${s.count} from the ${esc(s.name)}`).join(', ');
+  const studentCount = state.events.filter((e) => e.source === 'student').length;
+  const counts = [
+    ...state.sources.map((s) => `${s.count} from the ${esc(s.name)}`),
+    ...(studentCount ? [`${studentCount} added by students`] : []),
+  ].join(', ');
   $('foot').innerHTML =
     `<p>Updated ${updatedText(state.generated)}${counts ? ` · ${counts}` : ''}.</p>` +
     '<p>An unofficial student project, not run by Imperial College Union or Imperial College London. ' +
@@ -402,9 +416,18 @@ function sheetHTML(e) {
         <a class="btn" href="${esc(outlookUrl(e))}" target="_blank" rel="noopener">Outlook (Imperial account)</a>
       </div>
       ${e.description ? `<div class="description">${linkify(e.description)}</div>` : ''}
-      <p class="source">From the <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(SOURCE_NAMES[e.source] || 'original listing')}</a>. Details can change, so check there before you go.</p>
+      <p class="source">${sourceLine(e)}</p>
     </div>
   </div>`;
+}
+
+function sourceLine(e) {
+  if (e.source === 'student') {
+    const post = e.url ? ` (<a href="${esc(e.url)}" target="_blank" rel="noopener">original post</a>)` : '';
+    return `Added by a student from a screenshot${post}. Check with the society before you go.`;
+  }
+  return `From the <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(SOURCE_NAMES[e.source] || 'original listing')}</a>. ` +
+    'Details can change, so check there before you go.';
 }
 
 // Say which details the AI read off the poster, so people know where they came from.
@@ -432,11 +455,254 @@ function openSheet(id) {
   sheet.querySelector('#sheet-title').focus({ preventScroll: true });
 }
 
+/* ---------- Adding an event from a screenshot ----------
+   Pick a screenshot -> the read-screenshot function asks the AI what it says ->
+   the person checks and edits the details -> add-event saves it for everyone. */
+
+const ADD_TAGS = ['free', 'food', 'open', 'beginner', 'signup', 'dropin', 'members'];
+const adding = { step: 'pick', preview: '', found: [], chosen: 0, model: null, error: '' };
+
+const fnUrl = (name) => `${BACKEND.url}/functions/v1/${name}`;
+
+// Big phone screenshots are shrunk before upload: quicker, and plenty for reading text.
+async function shrink(file) {
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size < 1_500_000) return file;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  return new File([blob], 'screenshot.jpg', { type: 'image/jpeg' });
+}
+
+// What the AI read, turned into the form's starting values.
+function draftFrom(read) {
+  const tags = new Set();
+  if (read.free_food) tags.add('food');
+  if (read.open_to_non_members === true) tags.add('open');
+  if (read.open_to_non_members === false) tags.add('members');
+  if (read.signup_required === true) tags.add('signup');
+  if (read.signup_required === false) tags.add('dropin');
+  if (read.beginner_friendly) tags.add('beginner');
+  if (/^free\b/i.test(read.price || '')) tags.add('free');
+  return {
+    title: read.title || '', society: read.society || '', date: read.date || '',
+    start_time: read.start_time || '', end_time: read.end_time || '',
+    location: read.location || '', price: read.price || '', tags: [...tags],
+  };
+}
+
+// Words too common in event names to say two events are the same one.
+const COMMON = new Set(('the and with for our your night social session sessions taster event events welcome '
+  + 'give giag society soc club imperial college london icl meet evening first free join new term').split(' '));
+const words = (s) => new Set((String(s || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((w) => !COMMON.has(w)));
+const overlap = (a, b) => {
+  const x = words(a), y = words(b);
+  if (!x.size || !y.size) return 0;
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  return shared / Math.min(x.size, y.size);
+};
+const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// How alike two events' names and societies are: 1 or more means probably the same
+// event. Instagram handles run words together, so societies are also compared squashed.
+function likeness(a, b) {
+  const sa = squash(a.society), sb = squash(b.society);
+  const sameSociety = sa.length > 3 && sb.length > 3 && (sa.includes(sb) || sb.includes(sa));
+  return overlap(a.title, b.title) + (sameSociety ? 1 : overlap(a.society, b.society));
+}
+
+// The listed event most like the one being added, on the same day and around the same time.
+function findDuplicate(d) {
+  if (!d.date) return null;
+  const start = d.start_time ? Date.parse(`${d.date}T${d.start_time}:00Z`) : null;
+  let best = null, bestScore = 0;
+  for (const e of state.events) {
+    if (e.day !== d.date || e.source === 'student') continue;
+    const listed = Date.parse(`${e.day}T${fmtTime(e.t0)}:00Z`);
+    if (!(e.allDay || start === null || Math.abs(listed - start) <= 45 * 60_000)) continue;
+    const score = likeness(e, d);
+    if (score >= 1 && score > bestScore) { best = e; bestScore = score; }
+  }
+  return best;
+}
+
+function dupHTML(d) {
+  const dup = findDuplicate(d);
+  return dup
+    ? `<div class="notice"><p>This looks like <b>${esc(dup.title)}</b>, which is already listed. <a href="#/e/${encodeURIComponent(dup.id)}">Open it</a></p></div>`
+    : '';
+}
+
+function addFormHTML(d) {
+  const field =(name, label, attrs = '') =>
+    `<label class="field"><span>${label}</span><input name="${name}" value="${esc(d[name] || '')}" ${attrs}></label>`;
+  const choices = adding.found.length > 1
+    ? `<label class="field"><span>This screenshot has ${adding.found.length} events. Adding:</span><select data-pick>${
+      adding.found.map((r, i) => `<option value="${i}" ${i === adding.chosen ? 'selected' : ''}>${esc(r.title || 'Event')}${r.date ? ` · ${esc(r.date)}` : ''}</option>`).join('')}</select></label>`
+    : '';
+  return `
+    <h2 id="sheet-title" tabindex="-1">${adding.found.length ? 'Check the details' : 'Add an event'}</h2>
+    ${adding.found.length ? '<p class="fine">Read by AI from your screenshot. Fix anything it got wrong.</p>' : ''}
+    ${choices}
+    <div data-dup>${dupHTML(d)}</div>
+    <form data-addform novalidate>
+      ${field('title', 'Event name', 'required maxlength="140" autocomplete="off"')}
+      ${field('society', 'Society', 'maxlength="80" autocomplete="off"')}
+      <div class="field-row">
+        ${field('date', 'Date', 'type="date" required')}
+        ${field('start_time', 'Starts', 'type="time"')}
+        ${field('end_time', 'Ends', 'type="time"')}
+      </div>
+      ${field('location', 'Where', 'maxlength="120" placeholder="e.g. SAF G34" autocomplete="off"')}
+      ${field('price', 'Price', 'maxlength="60" placeholder="e.g. Free, £3" autocomplete="off"')}
+      <fieldset class="tagpick"><legend>Tick what the post says</legend>
+        ${ADD_TAGS.map((t) => `<label class="chip"><input type="checkbox" name="tags" value="${t}" ${d.tags.includes(t) ? 'checked' : ''}>${TAG_LABELS[t]}</label>`).join('')}
+      </fieldset>
+      ${field('source_url', 'Link to the post (optional)', 'type="url" maxlength="300" placeholder="https://www.instagram.com/p/…"')}
+      <label class="field"><span>Anything else (optional)</span><textarea name="description" rows="3" maxlength="1500">${esc(d.description || '')}</textarea></label>
+      ${adding.error ? `<p class="error" role="alert">${esc(adding.error)}</p>` : ''}
+      <div class="actions">
+        <button class="btn primary" type="submit" ${adding.step === 'saving' ? 'disabled' : ''}>${adding.step === 'saving' ? 'Adding…' : 'Add to After Lectures'}</button>
+        <button class="btn" type="button" data-close>Cancel</button>
+      </div>
+      <p class="fine">Everyone using After Lectures will see this, so only add real society events.</p>
+    </form>`;
+}
+
+function renderAdd(draft) {
+  let body;
+  if (adding.step === 'pick') {
+    body = `
+      <h2 id="sheet-title" tabindex="-1">Add an event</h2>
+      <p>Screenshot an Instagram post or story about a society event, then upload it. The AI reads the details and you check them before anything’s added.</p>
+      <label class="upload">${ICON.image}<b>Choose a screenshot</b><input type="file" accept="image/*" data-file></label>
+      ${adding.error ? `<p class="error" role="alert">${esc(adding.error)}</p>` : ''}
+      <p class="fine">Screenshots are sent to Google’s Gemini AI to be read and aren’t kept here. Please don’t upload private chats.</p>
+      <p><button class="linkish" type="button" data-manual>No screenshot? Fill it in yourself</button></p>`;
+  } else if (adding.step === 'reading') {
+    body = `
+      <h2 id="sheet-title" tabindex="-1">Reading your screenshot…</h2>
+      <img class="shot" src="${adding.preview}" alt="Your screenshot">
+      <p class="reading"><span class="spinner" aria-hidden="true"></span>Usually takes under 20 seconds.</p>`;
+  } else {
+    body = addFormHTML(draft);
+  }
+  $('sheet').innerHTML = `<button class="sheet-close" type="button" data-close aria-label="Close">${ICON.close}</button>
+    <div class="sheet-scroll"><div class="sheet-body add-body">${body}</div></div>`;
+}
+
+function openAdd() {
+  if (!BACKEND.url) { location.replace(viewHash()); return; }
+  Object.assign(adding, { step: 'pick', preview: '', found: [], chosen: 0, model: null, error: '' });
+  renderAdd();
+  const sheet = $('sheet');
+  if (!sheet.open) sheet.showModal();
+  sheet.querySelector('#sheet-title').focus({ preventScroll: true });
+}
+
+async function readScreenshot(file) {
+  if (!file) return;
+  adding.error = '';
+  try {
+    const small = await shrink(file);
+    adding.preview = URL.createObjectURL(small);
+    adding.step = 'reading';
+    renderAdd();
+    const form = new FormData();
+    form.append('image', small);
+    form.append('taken', dayKey(Date.now()));
+    const res = await fetch(fnUrl('read-screenshot'), { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'The AI couldn’t read that just now.');
+    adding.found = data.events || [];
+    adding.model = data.model || null;
+    adding.chosen = 0;
+    if (!adding.found.length) {
+      adding.step = 'pick';
+      adding.error = 'That doesn’t look like an event announcement. Try another screenshot, or fill it in yourself.';
+      renderAdd();
+      return;
+    }
+    adding.step = 'form';
+    renderAdd(draftFrom(adding.found[0]));
+  } catch (err) {
+    adding.step = 'pick';
+    adding.error = `${err.message || 'Something went wrong.'} You can also fill it in yourself.`;
+    renderAdd();
+  }
+}
+
+function formValues(form) {
+  const data = new FormData(form);
+  const value = (k) => String(data.get(k) || '').trim();
+  return {
+    title: value('title'), society: value('society'), date: value('date'),
+    start_time: value('start_time'), end_time: value('end_time'), location: value('location'),
+    price: value('price'), source_url: value('source_url'), description: value('description'),
+    tags: data.getAll('tags').map(String),
+  };
+}
+
+async function submitAdd(form) {
+  const values = formValues(form);
+  if (values.title.length < 3) { adding.error = 'Give the event a name.'; renderAdd(values); return; }
+  if (!values.date) { adding.error = 'Pick the date the event is on.'; renderAdd(values); return; }
+  adding.step = 'saving';
+  adding.error = '';
+  renderAdd(values);
+  try {
+    const res = await fetch(fnUrl('add-event'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...values, read_by: adding.model }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Couldn’t add that just now.');
+    const event = prepare(fromSubmission(data.submission));
+    state.events = [...state.events.filter((e) => e.id !== event.id), event].sort((a, b) => a.t0 - b.t0);
+    state.byId.set(event.id, event);
+    buildFilters();
+    toast('Added. Thanks for sharing it!');
+    adding.step = 'done';
+    location.replace(`#/e/${encodeURIComponent(event.id)}`);
+  } catch (err) {
+    adding.step = 'form';
+    adding.error = err.message;
+    renderAdd(values);
+  }
+}
+
+// A row from the submissions table, in the same shape as events.json events.
+function fromSubmission(r) {
+  return {
+    id: `student-${r.id}`, source: 'student', url: r.source_url || null, isSociety: true,
+    title: r.title, society: r.society || 'Added by a student',
+    start: r.starts_at, end: r.ends_at || null, allDay: Boolean(r.all_day),
+    location: r.location || null, campus: r.campus || null, price: r.price || null,
+    tags: r.tags || [], description: r.description || '', categories: ['Added by students'], image: null,
+  };
+}
+
+async function loadSubmissions() {
+  if (!BACKEND.url || BACKEND.key === 'dev') return [];
+  const since = encodeURIComponent(new Date(Date.now() - 36 * HOUR).toISOString());
+  const fields = 'id,title,society,starts_at,ends_at,all_day,location,campus,price,tags,description,source_url';
+  const res = await fetch(`${BACKEND.url}/rest/v1/submissions?select=${fields}&status=eq.live&starts_at=gte.${since}&order=starts_at`,
+    { headers: { apikey: BACKEND.key } });
+  if (!res.ok) throw new Error(`submissions: HTTP ${res.status}`);
+  return (await res.json()).map(fromSubmission);
+}
+
 /* ---------- Calendar export ---------- */
 
 const utcStamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const compactDay = (key) => key.replace(/-/g, '');
-const calendarNotes = (e) => `${e.society}\n\n${(e.description || '').slice(0, 900)}\n\n${e.url}`;
+const calendarNotes = (e) => `${e.society}\n\n${(e.description || '').slice(0, 900)}\n\n${e.url || ''}`.trim();
 
 function googleCalendarUrl(e) {
   const dates = e.allDay ? `${compactDay(e.day)}/${compactDay(addDays(e.day, 1))}` : `${utcStamp(e.t0)}/${utcStamp(e.t1)}`;
@@ -488,7 +754,7 @@ function icsFile(e) {
     `SUMMARY:${icsText(e.title)}`,
     ...(e.location ? [`LOCATION:${icsText(e.location)}`] : []),
     `DESCRIPTION:${icsText(calendarNotes(e))}`,
-    `URL:${e.url}`,
+    ...(e.url ? [`URL:${e.url}`] : []),
     'END:VEVENT', 'END:VCALENDAR',
   ];
   return lines.map(foldLine).join('\r\n') + '\r\n';
@@ -544,6 +810,11 @@ function viewHash() {
 
 function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parts[0] === 'add') {
+    if (!$('list').dataset.rendered) render();
+    if (adding.step === 'done' || !$('sheet').open) openAdd();
+    return;
+  }
   if (parts[0] === 'e' && parts[1]) {
     if (!state.events.length) return;
     if (!$('list').dataset.rendered) render();
@@ -591,14 +862,41 @@ document.addEventListener('click', (ev) => {
     store.set('dismissed', [...state.dismissed]);
     el.closest('.notice').remove();
   } else if (d.retry !== undefined) load();
+  else if (d.manual !== undefined) {
+    Object.assign(adding, { step: 'form', found: [], model: null, error: '' });
+    renderAdd({ title: '', society: '', date: '', start_time: '', end_time: '', location: '', price: '', tags: [] });
+  }
 });
 
 document.addEventListener('change', (ev) => {
+  if (ev.target.matches('[data-file]')) {
+    readScreenshot(ev.target.files[0]);
+    return;
+  }
+  if (ev.target.matches('[data-pick]')) {
+    adding.chosen = Number(ev.target.value);
+    renderAdd(draftFrom(adding.found[adding.chosen]));
+    return;
+  }
   const select = ev.target.closest('[data-select]');
   if (!select) return;
   state[select.dataset.select] = select.value;
   syncFilters();
   render();
+});
+
+// Re-check for an already-listed match as the date, time and name are edited.
+document.addEventListener('input', (ev) => {
+  const form = ev.target.closest('[data-addform]');
+  const box = form && $('sheet').querySelector('[data-dup]');
+  if (box) box.innerHTML = dupHTML(formValues(form));
+});
+
+document.addEventListener('submit', (ev) => {
+  const form = ev.target.closest('[data-addform]');
+  if (!form) return;
+  ev.preventDefault();
+  if (adding.step !== 'saving') submitAdd(form);
 });
 
 let searchTimer;
@@ -613,9 +911,14 @@ $('q').addEventListener('input', (ev) => {
 const sheet = $('sheet');
 sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.close(); });   // tap outside
 sheet.addEventListener('close', () => {
-  if (!location.hash.startsWith('#/e/')) return;
+  if (!/^#\/(e|add)(\/|$)/.test(location.hash)) return;
   if (state.sheetOverList) history.back(); else location.replace(viewHash());
 });
+
+if (BACKEND.url) {
+  $('add').hidden = false;
+  $('add').addEventListener('click', () => { location.hash = '#/add'; });
+}
 
 window.addEventListener('hashchange', route);
 
@@ -644,15 +947,22 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 
 async function load() {
   try {
-    const res = await fetch(DATA_URL, { cache: 'no-cache' });
+    const [res, added] = await Promise.all([
+      fetch(DATA_URL, { cache: 'no-cache' }),
+      loadSubmissions().catch((err) => { console.warn('Could not load events added by students', err); return []; }),
+    ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    state.events = data.events.map(prepare).sort((a, b) => a.t0 - b.t0 || a.title.localeCompare(b.title));
+    const listed = data.events.map(prepare);
+    // Skip student-added events that turn out to be listed officially as well.
+    const extra = added.map(prepare).filter((s) => !listed.some((e) =>
+      e.day === s.day && Math.abs(e.t0 - s.t0) <= 45 * 60_000 && likeness(e, s) >= 1));
+    state.events = [...listed, ...extra].sort((a, b) => a.t0 - b.t0 || a.title.localeCompare(b.title));
     state.byId = new Map(state.events.map((e) => [e.id, e]));
     state.generated = data.generated ? new Date(data.generated) : null;
     state.sources = data.sources || [];
     state.loadedAt = Date.now();
-    state.sheetOverList = !location.hash.startsWith('#/e/');
+    state.sheetOverList = !/^#\/(e|add)(\/|$)/.test(location.hash);
     buildFilters();
     route();
   } catch (err) {
